@@ -1,47 +1,72 @@
-import com.corlaez.renew.RenewApi
-import com.corlaez.renew.RenewImpl
+package com.corlaez.renew
+
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
 import java.time.Duration
 
-public enum class RenewState {
-    IDLE,
-    RUNNING,
-    CANCELLED
-}
-
 public class Renew<T>(
-    public override val interval: Duration,
-    public override val consume: (T) -> Unit,
-): RenewApi<T> {
-    private val renewImpl: RenewImpl<T> = RenewImpl(true, interval, consume)
+    public val runQueryAsyncFromDelay: Boolean,
+    public val interval: Duration,
+    public val consume: (T) -> Unit,
+) {
+    private var job: Job? = null
+    private var isCancelled: Boolean = false
+    private var isInitExecuted: Boolean = false
 
-    override suspend fun init(query: suspend () -> T): Boolean {
-        return renewImpl.init(query)
+    public suspend fun init(query: suspend () -> T): Boolean {
+        val state = getState()
+        isInitExecuted = true
+        if (state != RenewState.IDLE) return false
+        coroutineScope {
+            job = launch {
+                val flow = if (runQueryAsyncFromDelay) {
+                    channelFlow {
+                        if(job!!.isCancelled) this@coroutineScope.cancel()
+                        runFlowLoop(this@coroutineScope, this::send, query)
+                    }
+                } else {
+                    flow {
+                        if(job!!.isCancelled) this@coroutineScope.cancel()
+                        runFlowLoop(this@coroutineScope, this::emit, query)
+                    }
+                }
+                flow.collect { consume(it) }
+            }
+        }
+        return true
     }
 
-    override fun getState(): RenewState {
-        return renewImpl.getState()
+    private suspend fun runFlowLoop(coroutineScope: CoroutineScope, sendOrEmit: suspend (T) -> Unit, query: suspend () -> T) {
+        while (true) {
+            delay(interval.toMillis())
+            if (runQueryAsyncFromDelay) {
+                coroutineScope.launch {
+                    // channelFlow send
+                    sendOrEmit(query())
+                }
+            } else {
+                // flow emit
+                sendOrEmit(query())
+            }
+        }
     }
 
-    override fun cancel(message: String) {
-        renewImpl.cancel(message)
-    }
-}
-
-public class RenewBlocking<T>(
-    public override val interval: Duration,
-    public override val consume: (T) -> Unit,
-): RenewApi<T> {
-    private val renewImpl: RenewImpl<T> = RenewImpl(false, interval, consume)
-
-    override suspend fun init(query: suspend () -> T): Boolean {
-        return renewImpl.init(query)
+    public fun getState(): RenewState {
+        return if (isCancelled)
+            RenewState.CANCELLED
+        else if (isInitExecuted)
+            RenewState.RUNNING
+        else
+            RenewState.IDLE
     }
 
-    override fun getState(): RenewState {
-        return renewImpl.getState()
+    public fun cancel() {
+        isCancelled = true
+        job?.cancel("Cancelled manually")
     }
 
-    override fun cancel(message: String) {
-        renewImpl.cancel(message)
+    protected fun finalize() {
+        job?.cancel("Cancelled by finalize")
     }
 }
