@@ -1,66 +1,104 @@
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import java.time.Duration
 
 public fun main() {
         runBlocking {
-                val renewer = Renewer(
-                        Duration.ofSeconds(1),
-                        QueryAndUpdate(
-                                query = { System.currentTimeMillis() },
-                                update = { println("outside $it") }
-                        )
-                )
-                launch(Dispatchers.IO) { renewer.run() }
-                Thread.sleep(500)
-                println("Completed")
-                Thread.sleep(6000)
-        }
-}
-
-public data class QueryAndUpdate<T>(val query: () -> T, val update: (T) -> Unit) {
-        public fun renewEvery(duration: Duration): Renewer<T> {
-                return Renewer(duration, this)
-        }
-}
-
-public class Renewer<T>(
-        public val interval: Duration,
-        public val queryAndUpdate: QueryAndUpdate<T>,
-        public val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-        public val waitCompletion: Boolean = false,
-): AutoCloseable {
-        private lateinit var loop: Job
-        private lateinit var firstQuery: Job
-
-        public suspend fun run() {
-                flow {
-                        while (true) {
-                                delay(1000) // pretend we are doing something useful here
-                                emit(System.currentTimeMillis()) // emit next value
+                var i: Long = 0
+                var e: Long = 0
+                val renewer = Renewer2<Long>(
+                        Duration.ofSeconds(1)
+                ) {
+                        e++
+                        println("end query $e")
+                }
+                launch(Dispatchers.IO) {
+                        renewer.init {
+                                i++
+                                println("init query $i")
+                                delay(3000)
+                                i
                         }
-                }.collect { println("outside $it") }
-        }
-
-        public suspend fun awaitFirstUpdate() {
-                firstQuery.join()
-        }
-
-        override fun close() {
-                loop.cancel("Manually cancelled")
-                firstQuery.cancel("Manually cancelled")
+                }
+                println("Completed")
         }
 }
 
+public class Renewer2<T>(
+        public val interval: Duration,
+        public val runQueryAsyncFromDelay: Boolean = true,
+        public val consume: (T) -> Unit,
+) {
+        private var job: Job? = null
+        private var isCancelled: Boolean = false
+        private var isInitExecuted: Boolean = false
 
+        public companion object {
+                public operator fun <T> invoke(interval: Duration, runQueryAsyncFromDelay: Boolean,consume: (T) -> Unit): Renewer2<T> {
+                        return Renewer2(interval, runQueryAsyncFromDelay, consume)
+                }
+        }
 
+        public suspend fun init(query: suspend () -> T): Boolean {
+                val state = getState()
+                isInitExecuted = true
+                if (state != State.IDLE) return false
+                coroutineScope {
+                        job = launch {
+                                val flow = if (runQueryAsyncFromDelay) {
+                                        channelFlow {
+                                                if(job!!.isCancelled) this@coroutineScope.cancel()
+                                                runFlowLoop(this@coroutineScope, this::send, query)
+                                        }
+                                } else {
+                                        flow {
+                                                if(job!!.isCancelled) this@coroutineScope.cancel()
+                                                runFlowLoop(this@coroutineScope, this::emit, query)
+                                        }
+                                }
+                                flow.collect { consume(it) }
+                        }
+                }
+                return true
+        }
 
+        private suspend fun runFlowLoop(coroutineScope: CoroutineScope, sendOrEmit: suspend (T) -> Unit, query: suspend () -> T) {
+                while (true) {
+                        delay(interval.toMillis())
+                        if (runQueryAsyncFromDelay) {
+                                coroutineScope.launch {
+                                        // channelFlow send
+                                        sendOrEmit(query())
+                                }
+                        } else {
+                                // flow emit
+                                sendOrEmit(query())
+                        }
+                }
+        }
 
+        public enum class State {
+                IDLE,
+                RUNNING,
+                CANCELLED
+        }
 
+        public fun getState(): State {
+                return if (isCancelled)
+                        State.CANCELLED
+                else if (isInitExecuted)
+                        State.RUNNING
+                else
+                        State.IDLE
+        }
 
+        public fun cancel(message: String = "Cancelled manually") {
+                isCancelled = true
+                job?.cancel(message)
+        }
 
-
-
-
-
+        protected fun finalize() {
+                cancel("Cancelled by finalize")
+        }
+}

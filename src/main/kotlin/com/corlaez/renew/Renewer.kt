@@ -1,45 +1,61 @@
-package com.corlaez.renew
-
 import kotlinx.coroutines.*
-import java.lang.IllegalStateException
+import kotlinx.coroutines.flow.flow
 import java.time.Duration
 
-public class BackgroundIntervalRenew<T>(
-    public var interval: Duration,
-    supplier: () -> T,
+public data class QueryAndUpdate<T>(val query: suspend () -> T, val update: (T) -> Unit) {
+    public fun renewEvery(duration: Duration): Renewer<T> {
+        return Renewer(duration, this)
+    }
+}
+
+public class Renewer<T>(
+    public val interval: Duration,
+    public val queryAndUpdate: QueryAndUpdate<T>,
+    public val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private val renew = Renewable(supplier)
-    private var loop = runBlocking {
-            renew.renovate()
-            launch {
-                while (this.isActive) {
-                    delay(interval.toMillis())
-                    renew.renovate()
-                }
+    private var job: Job? = null
+    private var isCancelled: Boolean = false
+    private var isInitExecuted: Boolean = false
+
+    public suspend fun init(): State {
+        isInitExecuted = true
+        val state = getState()
+        if (state != State.IDLE) return state
+        coroutineScope {
+            job = launch {
+                flow {
+                    if(job?.isCancelled!!) this@coroutineScope.cancel()
+                    while (true) {
+                        delay(interval.toMillis())
+                        emit(queryAndUpdate.query())
+                    }
+                }.collect { queryAndUpdate.update(it) }
             }
         }
-
-    public fun cancel() {
-        loop.cancel("Manually cancelled")
+        return State.RUNNING
     }
 
-    public fun getValue(): Deferred<T>  {
-        return renew.getValue()
+    public enum class State {
+        IDLE,
+        RUNNING,
+        CANCELLED
     }
 
-    private class Renewable<T>(val supplier: suspend () -> T) {
-        var deferred: Deferred<T>? = null
+    public fun getState(): State {
+        return if (isCancelled)
+            State.CANCELLED
+        else if (isInitExecuted)
+            State.RUNNING
+        else
+            State.IDLE
+    }
 
-        fun getValue(): Deferred<T> {
-            return deferred ?: throw IllegalStateException("Call renovate before calling getValue")
-        }
+    public fun cancel(message: String = "Cancelled manually") {
+        isCancelled = true
+        job?.cancel(message)
+    }
 
-        suspend fun fetch(): Deferred<T> = coroutineScope {
-            async { supplier() }
-        }
-
-        suspend fun renovate(): Unit = coroutineScope {
-            deferred = fetch()
-        }
+    protected fun finalize() {
+        cancel("Cancelled by finalize")
     }
 }
