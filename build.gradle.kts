@@ -39,9 +39,9 @@ kotlin {
 publishing {
     publications {
         create<MavenPublication>("maven") {
-//            groupId = "com.corlaez"
-//            artifactId = "renew"
-//            version = "0.1.0"
+            groupId = "com.corlaez"
+            artifactId = "renew"
+            version = "0.1.0"
             from(components["java"])
         }
     }
