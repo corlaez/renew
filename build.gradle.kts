@@ -2,19 +2,24 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     kotlin("jvm") version "1.6.10"
-    application
+    `maven-publish`
 }
 
 group = "com.corlaez"
-version = "1.0"
+version = "0.1.0"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.0")
+    fun kotlinx(suffix: String) = "org.jetbrains.kotlinx:kotlinx-$suffix"
+    val coroutinesVersion = "1.6.0"
+
+    implementation(kotlin("stdlib-jdk8"))
+    implementation(kotlinx("coroutines-core:$coroutinesVersion"))
+
+    testImplementation(kotlinx("coroutines-core-jvm:$coroutinesVersion"))
     testImplementation(kotlin("test"))
 }
 
@@ -22,14 +27,21 @@ tasks.test {
     useJUnit()
 }
 
-tasks.withType<KotlinCompile>() {
+tasks.withType<KotlinCompile> {
     kotlinOptions.jvmTarget = "1.8"
-}
-
-application {
-    mainClass.set("MainKt")
 }
 
 kotlin {
     explicitApi()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+//            groupId = "com.corlaez"
+//            artifactId = "renew"
+//            version = "0.1.0"
+            from(components["java"])
+        }
+    }
 }
