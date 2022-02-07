@@ -5,6 +5,13 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import java.time.Duration
 
+/**
+ * Allows time-consuming queries to be executed and re-executed in the background with a delay between executions.
+ *
+ * @property runQueryAsyncFromDelay when true the delay will start without waiting for the query to complete
+ * @property interval is the Duration that will be used in the delay between executions
+ * @property consume a function that determines what to do each time the query returns a value
+ * */
 public class Renew<T>(
     public val runQueryAsyncFromDelay: Boolean,
     public val interval: Duration,
@@ -14,6 +21,8 @@ public class Renew<T>(
     private var isCancelled: Boolean = false
     private var isInitExecuted: Boolean = false
 
+    /** Starts a flow that will emit or send the updated values as the queries separated by delays complete
+     * @param query A function that provides a value. It is assumed this function takes a long time to complete */
     public suspend fun init(query: suspend () -> T): Boolean {
         val state = getState()
         isInitExecuted = true
@@ -61,6 +70,7 @@ public class Renew<T>(
             RenewState.IDLE
     }
 
+    /** Stops the renewal concurrent process if there is one and prevents it to start or resume*/
     public fun cancel() {
         isCancelled = true
         job?.cancel("Cancelled manually")
