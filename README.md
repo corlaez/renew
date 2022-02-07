@@ -19,7 +19,7 @@ repositories {
         url = uri("https://jitpack.io")
         content {
             //  Only allow com.corlaez from jitpack
-            includeGroup("com.corlaez")
+            includeGroup("com.github.corlaez")
         }
     }
 }
