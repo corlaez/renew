@@ -5,8 +5,8 @@
 #      - uses: actions/checkout@v2
 #      - uses: actions/setup-java@v2
 #        with:
-#          distribution: 'adopt-openj9'
-#          java-version: '1.8'
+#          distribution: 'temurin'
+#          java-version: '8'
 #          cache: 'gradle'
 #      - run: ./gradlew build --full-stacktrace --no-daemon
 
