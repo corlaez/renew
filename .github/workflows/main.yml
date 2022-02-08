@@ -5,7 +5,7 @@ on:
   push:
     paths-ignore:
       - '*.md'
-    branches: [ master ]
+    branches: [ master, ci-test ]
   pull_request:
     branches: [ master ]
 
@@ -16,14 +16,16 @@ jobs:
   test:
     name: Run Unit Tests ${{ matrix.Java }}
     runs-on: ubuntu-20.04
-    strategy:
-      matrix:
-        java: [ '8', '17' ]
 
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-java@v2
         with:
           distribution: 'adopt-openj9'
-          java-version: ${{ matrix.java }}
+          java-version: '8'
+      - run: ./gradlew check --full-stacktrace
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt-openj9'
+          java-version: '17'
       - run: ./gradlew check --full-stacktrace
