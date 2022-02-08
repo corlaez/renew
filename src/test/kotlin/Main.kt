@@ -11,7 +11,7 @@ class MyTest {
 
         @Test
         fun mytest() {
-                assertEquals(true, true)
+                assertEquals(false, true)
 /*
         val renewable = Renewable(1L) {
                 i++
